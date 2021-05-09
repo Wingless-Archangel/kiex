@@ -13,7 +13,7 @@ Usage is based *lightly* on [RVM](http://rvm.io), [kerl](https://github.com/spaw
 
 ### Install
 
-Prereqs: bash, curl, git
+**Prerequisites:** bash, curl, erlang, git, make, openssl 
 
 Run the following to get up and running:
 
@@ -34,8 +34,8 @@ List known releases
 List current branches
  * ``` kiex list branches ```
 
-Install a known release or branch
- * ``` kiex install 0.12.5 ``` or ``` kiex install stable ```
+Install a known release or branch.
+ * ``` kiex install 0.12.5 ```
 
 Use specific elixir version
  * ``` kiex use 0.12.5 ``` -- Sets the elixir version for current shell.
@@ -44,7 +44,7 @@ Create an alias for the specified elixir version
  * ``` kiex alias 0.12.5 0.12 ```
 
 Use sub-shell with specific elixir version
- * ``` kiex shell 0.12.5 ``` -- Starts sub-shell with given elixir version.  Exiting shell goes to default.
+ * ``` kiex shell 0.12.5 ``` -- Starts sub-shell with given elixir version. Exiting shell goes to default.
 
 Set default elixir version
  * ``` kiex default 0.12.5 ```
@@ -59,7 +59,7 @@ Upgrade kiex
 ### Sourcing elixir into your path
 
 After installing your preferred version of elixir and setting it as your default you can use kiex scripts to
-put your default elixir bin into your path.  One way to do this is to add the following line into your rc file:
+put your default elixir bin into your path. One way to do this is to add the following line into your rc file:
 
 ```
 [[ -s "$HOME/.kiex/scripts/kiex" ]] && source "$HOME/.kiex/scripts/kiex"
@@ -89,7 +89,7 @@ How is it like Kerl?
 
 How is it not like Kerl?
  * Not as flexible on install path
- * Dynamically get's release list instead of caching
+ * Dynamically gets release list instead of caching
  * Build and install actions are not separated
 
 How is it like RVM?
@@ -149,6 +149,7 @@ Related tools:
    - You can hack it in by adding kiex use <version> to .rvmrc or friends ;P
 
 <a name="notes">
+
 ### Notes
 
 Some erlang builds (including default kerl) are unusuable on current CentOS and Fedora distros as a result of an OpenSSL update.  -- 2014/03/31
@@ -170,7 +171,6 @@ A update to OTP crypto https://github.com/RoadRunnr/otp/commit/8837c1be2ba8a3c12
    - Already in list command - this would be the single version
    - Maybe show source line?
  * Add sourceline or similar command to show source line to use?
- * Add uninstall option for installed elixirs
  * Maybe add dynamo install and setup for MIX_PATH
    - how to tie to elixir used? gemset like?
    - use dynamo tags?

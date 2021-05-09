@@ -18,6 +18,11 @@ USER_AGENT="kiex-elixir-installer"
 
 SYSTEM=$(uname -s)
 
+AUTH_HEADER=()
+if [ -n "$KIEX_OAUTH_TOKEN" ]; then
+    AUTH_HEADER=(-H "Authorization: token ${KIEX_OAUTH_TOKEN}")
+fi
+
 # Running bash -l from csh does not change $SHELL
 if [ -z "$USERSHELL" ] ; then
   USERSHELL=$(basename $SHELL)
@@ -36,11 +41,13 @@ if [ "$SYSTEM" = "Linux" ] ; then
     esac
   elif (( "$(grep -ic arch /etc/os-release)" > 0 )) ; then
     DISTRO="Arch"
+  elif (( "$(grep -ic Fedora /etc/os-release)" > 0 )) ; then
+    DISTRO="Fedora"
   elif (( "$(grep -ic Ubuntu /etc/issue)" > 0 )) ; then
     DISTRO="Ubuntu"
   elif (( "$(grep -ic Centos /etc/issue)" > 0 )) ; then
     DISTRO="Centos"
-  elif (( "$([[ -f /etc/inittab ]] && grep -ic Gentoo /etc/inittab)" > 0 )) ; then
+  elif [[ -f /etc/gentoo-release ]] ; then
     DISTRO="Gentoo"
   else
     echo "Unknown Linux distribution"
@@ -67,7 +74,7 @@ if [ "$INSTALL_KIEX" = 1 ] ; then
     exec "$KIEX_HOME/bin/kiex" selfupdate
   else
     mkdir -p "${KIEX_HOME}/bin"
-    \curl -sSL -o "$KIEX_HOME/bin/kiex" https://raw.githubusercontent.com/taylor/kiex/master/kiex
+    \curl -sSL ${AUTH_HEADER[*]} -o "$KIEX_HOME/bin/kiex" https://raw.githubusercontent.com/taylor/kiex/master/kiex
     chmod +x "$KIEX_HOME/bin/kiex"
 
     echo "Running initial environment setup"
@@ -89,7 +96,9 @@ function usage() {
   printf "%b" "    list known                - shows available Elixir releases\n"
   printf "%b" "    list branches             - shows available Elixir branches\n"
   printf "%b" "    install <version>         - installs the given release version\n"
+  printf "%b" "    uninstall <version>       - uninstalls the given release version\n"
   printf "%b" "    alias <version> <alias>   - creates an alias for the given version\n"
+  printf "%b" "    unalias <alias>           - removes an alias\n"
   printf "%b" "    use <version> [--default] - uses the given version for this shell\n"
   printf "%b" "    shell <version>           - uses the given version for this shell\n"
   printf "%b" "    default <version>         - sets the default version to be used\n"
@@ -105,7 +114,8 @@ function usage() {
 function readlink_f() {
   TARGET_FILE="$1"
 
-  cd `dirname "$TARGET_FILE"`
+  cd "$(dirname "$TARGET_FILE")"
+
   TARGET_FILE=`basename "$TARGET_FILE"`
 
   # Iterate down a (possible) chain of symlinks
@@ -133,7 +143,7 @@ function check_erlang_release() {
         erlang_release_file="$ERL_EXEC_PATH/../../releases/RELEASES"
     fi
   elif [ "$SYSTEM" = "Darwin" -o "$SYSTEM" = "FreeBSD" ] ; then
-    erlang_release_file="$(dirname $(readlink_f $(which erl 2> /dev/null)))/../releases/RELEASES"
+    erlang_release_file="$(dirname "$(readlink_f "$(which erl 2> /dev/null)")")/../releases/RELEASES"
   else
       echo "Unknown system $SYSTEM"
       return 1
@@ -144,7 +154,7 @@ function check_erlang_release() {
     return 1
   fi
 
-  erlang_release=($(awk -F, 'NR==1 {gsub(/"/,"",$3);print $3}' "$erlang_release_file" | sed 's/R\([0-9]*\)\([A-Z]\)/\1 \2 /'))
+  erlang_release=($(grep -v '^%' "$erlang_release_file" | awk -F, 'NR==1 {gsub(/"/,"",$3);print $3}' | sed 's/R\([0-9]*\)\([A-Z]\)/\1 \2 /'))
   r="${erlang_release[0]}"
   c="${erlang_release[1]}"
   cn="${erlang_release[2]}"
@@ -216,7 +226,7 @@ function erlang_req_info() {
   echo "Erlang installation choices:"
   echo "   * Download - https://www.erlang-solutions.com/downloads/download-erlang-otp"
   echo "                http://www.erlang.org/download.html"
-  echo "   * Kerl - https://github.com/spawngrid/kerl"
+  echo "   * Kerl - https://github.com/kerl/kerl"
   echo "   * Package manager -"
   echo "           Arch: See AUR package,"
   echo "           FreeBSD: pkg install erlang"
@@ -281,6 +291,7 @@ function kiex() {
     source_line="$(USERSHELL=notcsh $HOME/.kiex/bin/kiex $*|grep source)"
     if [ -z "$source_line" ] ; then
       echo "Failed to $*"
+      return 1
     else
       eval "$source_line"
       shift
@@ -305,7 +316,7 @@ EOF
   ## Fish
   cat <<"EOF"> "$KIEX_SCRIPTS_PATH/kiex.fish"
 set KIEX_HOME $HOME/.kiex
-setenv PATH $KIEX_HOME/bin $PATH
+set -gx PATH $KIEX_HOME/bin $PATH
 
 if test -f $KIEX_HOME/elixirs/.default.fish
   source $KIEX_HOME/elixirs/.default.fish
@@ -405,7 +416,7 @@ function self_update() {
   cp kiex kiex.bak-$D
 
   mkdir -p "$KIEX_HOME/bin"
-  \curl -L -H "User-Agent: $USER_AGENT" -sSL -o "$KIEX_HOME/bin/kiex" "$kiex_url"
+  \curl -L ${AUTH_HEADER[*]} -H "User-Agent: $USER_AGENT" -sSL -o "$KIEX_HOME/bin/kiex" "$kiex_url"
   chmod +x "$KIEX_HOME/bin/kiex"
   #exec $KIEX_HOME/bin/kiex setup update
   exec $KIEX_HOME/bin/kiex selfupdatereloaded
@@ -440,7 +451,7 @@ function kiex_implode() {
 function get_elixir_branches() {
   # TODO: add cache support
   # x=$(curl -i -H "User-Agent: $USER_AGENT" -H "Accept: application/json" -qs https://api.github.com/repos/elixir-lang/elixir/branches |grep '"name":|ETag:')
-  x=$(\curl -i -H "User-Agent: $USER_AGENT" -H "Accept: application/json" -qs https://api.github.com/repos/elixir-lang/elixir/branches |grep '"name":')
+  x=$(\curl -i ${AUTH_HEADER[*]} -H "User-Agent: $USER_AGENT" -H "Accept: application/json" -qs https://api.github.com/repos/elixir-lang/elixir/branches |grep '"name":')
   x=$(echo $x | tr ',' '\n' |grep name\":|sed 's/.*name":"\([^"]*\)"/\1/')
   #x=${x//\"name\":/}
   #x=${x//[\",]/}
@@ -486,13 +497,19 @@ function get_known_elixir_releases() {
 #   xetag=$(echo $x|grep ETag)
 #   x=$(echo $x|grep -v ETag)
 
-  x=$(\curl -i -H "User-Agent: $USER_AGENT" -H 'Accept: application/json' -qs https://api.github.com/repos/elixir-lang/elixir/releases | tr ',' '\n' | grep '"tag_name":')
+  x=$(\curl -i ${AUTH_HEADER[*]} -H "User-Agent: $USER_AGENT" -H 'Accept: application/json' -qs "https://api.github.com/repos/elixir-lang/elixir/releases?per_page=100" | tr ',' '\n' | grep '"tag_name":')
   x=${x//\"tag_name\":/}
   x=${x//[\",]/}
   x=${x//v/}
 
   # update_release_cache "$x"
-  echo "$x" | sed 's/^/    /'
+  echo "$x" | sed 's/^/    /' | sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4n
+}
+
+function get_latest_elixir_release() {
+  x=$(curl -i ${AUTH_HEADER[*]} -H "User-Agent: $USER_AGENT" -H 'Accept: application/json' -qs https://api.github.com/repos/elixir-lang/elixir/releases/latest | tr ',' '\n' | grep '"tag_name":' | sed -E 's/"tag_name":"v(.+)"$/\1/')
+  
+  echo "$x"
 }
 
 function list_known() {
@@ -503,6 +520,22 @@ function list_known() {
 
   echo "Known Elixir releases: "
   printf "%b" "${elixir_releases}\n"
+}
+
+function get_latest() {
+  echo "Getting the latest release from https://github.com/elixir-lang/elixir/releases/latest"
+  # add empty line
+  echo
+  local latest_release=$(get_latest_elixir_release)
+  echo "Latest release is ${latest_release}"
+  # add empty line
+  echo
+  read -p "Do you want to install it? [y/n]" -n 1 -r
+
+  if [[ $REPLY =~ ^[Yy]$ ]]
+  then
+    install_elixir $latest_release
+  fi
 }
 
 function valid_known_release() {
@@ -560,8 +593,10 @@ function install_elixir() {
   install_path="${elixirs_path}/elixir-${version}"
 
   cd "$build_path"
+  echo "Downloading elixir version ${version}"
   git clone https://github.com/elixir-lang/elixir.git elixir-git 2> /dev/null
   cd elixir-git
+  echo "Installing elixir version ${version}"
   git checkout -f master
   git fetch -t
   # TODO: deal with conflicts between branches and tags
@@ -614,6 +649,71 @@ function install_elixir() {
   esac
 }
 
+function uninstall_elixir() {
+  typeset version delete_version current_elixir default_elixir iexpath x1
+  typeset alias_file alias_name target_file target_name target_alias_list a
+
+  version="$1"
+  delete_version=$(find_elixir_ver "$version")
+
+  if [[ -z "$delete_version" ]]; then
+    echo "Elixir version '$version' not found."
+    exit 1
+  fi
+
+  if [[ -e "$elixirs_path"/.default ]]; then
+    default_elixir="elixir-$(source $elixirs_path/.default ; echo $ELIXIR_VERSION)"
+  fi
+
+  iexpath=$(which iex 2> /dev/null)
+  if [[ -n "${iexpath}" ]]; then
+    x1=${iexpath/$elixirs_path\/}
+    current_elixir=${x1/\/bin\/iex}
+  fi
+
+  if [[ "$delete_version" == "$current_elixir" ]]; then
+    echo "'$version' is the current version of Elixir."
+    echo "Please set kiex to use another version of Elixir and try again."
+    exit 1
+  fi
+
+  if [[ "$delete_version" == "$default_elixir" ]]; then
+    reset_elixir > /dev/null
+  fi
+
+  # remove aliases
+  pushd "$elixirs_path" > /dev/null
+  target_alias_list=""
+  for alias_file in $(find . -maxdepth 1 -mindepth 1 -type l -name ".elixir-*")
+  do
+    alias_name="${alias_file//.\/.elixir-}"
+    target_file="$(readlink $alias_file)"
+    target_name="$(basename $target_file .env)"
+
+    target_alias_list_name="ealiases__${target_name//[^[:alnum:]]/}"
+    target_alias_list=${!target_alias_list_name}
+    if [[ -z "$target_alias_list" ]]; then
+      target_alias_list="$alias_name"
+    else
+      target_alias_list="$target_alias_list $alias_name"
+    fi
+    printf -v "ealiases__${target_name//[^[:alnum:]]/}" %s "$target_alias_list"
+  done
+  popd > /dev/null
+
+  target_alias_list_name="ealiases__${delete_version//[^[:alnum:]]/}"
+  target_alias_list=${!target_alias_list_name}
+  for a in $target_alias_list; do
+    remove_alias "$a"
+  done
+
+  # remove the actual files
+  rm -f "$KIEX_HOME/elixirs/.$delete_version.env."*sh*
+  rm -Rf "$KIEX_HOME/elixirs/$delete_version"
+  rm -f "$KIEX_HOME/elixirs/$delete_version.env"*
+  rm -Rf "$KIEX_HOME/mix/archives/$delete_version"
+}
+
 function create_env_file() {
   new_ver="$1"
   new_file="${elixirs_path}/elixir-${new_ver}.env"
@@ -642,7 +742,7 @@ EOF
 cat <<EOF> $new_file
 setenv ELIXIR_VERSION "$new_ver"
 setenv PATH "${elixirs_source_path}/elixir-${new_ver}/bin:\$PATH"
-setenv MIX_ARCHIVES="${mix_archives_source_path}/elixir-${new_ver}"
+setenv MIX_ARCHIVES "${mix_archives_source_path}/elixir-${new_ver}"
 EOF
 
 ## Fish
@@ -651,9 +751,9 @@ EOF
     mv -f "$new_file" "${new_file}.old"
   fi
 cat <<EOF> $new_file
-setenv ELIXIR_VERSION $new_ver
-setenv PATH ${elixirs_source_path}/elixir-${new_ver}/bin \$PATH
-setenv MIX_ARCHIVES ${mix_archives_source_path}/elixir-${new_ver}
+set -gx ELIXIR_VERSION $new_ver
+set -gx PATH ${elixirs_source_path}/elixir-${new_ver}/bin \$PATH
+set -gx MIX_ARCHIVES ${mix_archives_source_path}/elixir-${new_ver}
 EOF
 }
 
@@ -739,6 +839,17 @@ function create_alias() {
   fi
 }
 
+function remove_alias() {
+  local alias_name="$1"
+  local symlink_path="${elixirs_path}/.elixir-$alias_name"
+
+  if [[ -L "$symlink_path" ]]; then
+    rm -f "$symlink_path"
+  else
+    echo "Alias '$alias_name' does not exist."
+  fi
+}
+
 function elixir_subshell() {
   target_elixir="$1"
   version=$(find_elixir_ver "$target_elixir")
@@ -797,6 +908,7 @@ function reset_elixir() {
 function list_elixirs() {
   typeset current_elixir elixirs version selected system_elixir system_version \
     default_elixir string binary
+  typeset alias_file alias_name target_file target_name target_alias_list
 
   if [ -e "$elixirs_path"/.default ] ; then
     default_elixir="elixir-$(source $elixirs_path/.default ; echo $ELIXIR_VERSION)"
@@ -815,6 +927,25 @@ function list_elixirs() {
     find . -maxdepth 1 -mindepth 1 -type d 2> /dev/null | sort
     #find . -maxdepth 1 -mindepth 1 -type d | sed -e 's#./##g'
     ))
+
+  pushd "$elixirs_path" > /dev/null
+  target_alias_list=""
+  for alias_file in $(find . -maxdepth 1 -mindepth 1 -type l -name ".elixir-*")
+  do
+    alias_name="${alias_file//.\/.elixir-}"
+    target_file="$(readlink $alias_file)"
+    target_name="$(basename $target_file .env)"
+
+    target_alias_list_name="ealiases__${target_name//[^[:alnum:]]/}"
+    target_alias_list=${!target_alias_list_name}
+    if [[ -z "$target_alias_list" ]]; then
+      target_alias_list="$alias_name"
+    else
+      target_alias_list="$target_alias_list $alias_name"
+    fi
+    printf -v "ealiases__${target_name//[^[:alnum:]]/}" %s "$target_alias_list"
+  done
+  popd > /dev/null
 
   #for version in "${elixirs//.\/}"
   for version in "${elixirs[@]//.\/}"
@@ -838,6 +969,9 @@ function list_elixirs() {
     fi
 
     printf "%b" "$version"
+    target_alias_list_name="ealiases__${version//[^[:alnum:]]/}"
+    target_alias_list=${!target_alias_list_name}
+    [[ -n "$target_alias_list" ]] && printf " [%b]" "$target_alias_list"
     printf "%b" "\n"
   done
 
@@ -921,7 +1055,15 @@ case $action in
       echo "    [[ -s \"\$HOME/.kiex/scripts/kiex\" ]] && source \"\$HOME/.kiex/scripts/kiex\""
       exit
     fi
+    if [ "$1" = "latest" ] ; then
+      get_latest
+      exit
+    fi
     install_elixir "$1"
+    ;;
+  uninstall)
+    [[ -z "$1" ]] && usage && exit 1
+    uninstall_elixir "$1"
     ;;
   use)
     [[ -z "$1" ]] && usage && exit 1
@@ -968,6 +1110,11 @@ case $action in
   alias)
     [[ -z "$1" ]] || [[ -z "$2" ]] && usage && exit 1
     create_alias "$1" "$2"
+    exit
+    ;;
+  unalias)
+    [[ -z "$1" ]] && usage && exit 1
+    remove_alias "$1"
     exit
     ;;
   *)
